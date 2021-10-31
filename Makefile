@@ -14,4 +14,4 @@ test:
 
 .PHONY: update-deps
 update-deps:
-	@udd denops/template/deps.ts
+	@udd denops/delve/deps.ts
