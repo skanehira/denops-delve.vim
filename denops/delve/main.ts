@@ -5,7 +5,6 @@ import {
   CurrentThread,
   DebuggerStateResult,
   Kind,
-  State,
   Variable,
   VariableResult,
 } from "./dlv_type.ts";
@@ -13,7 +12,7 @@ import {
 export async function main(denops: Denops): Promise<void> {
   // define commands
   const commands: string[] = [
-    `command! -nargs=+ -complete=file DlvDebugStart call denops#notify("${denops.name}", "dlvDebugStart", [<f-args>])`,
+    `command! -nargs=* -complete=file DlvDebugStart call denops#notify("${denops.name}", "dlvDebugStart", [<f-args>])`,
     `command! -nargs=+ -complete=file DlvDebugStartWithEnv call denops#notify("${denops.name}", "dlvDebugStartWithEnv", [<f-args>])`,
     `command! DlvBreakpoint call denops#notify("${denops.name}", "createBreakpoint", [<f-args>])`,
     `command! DlvBreakpointClear call denops#notify("${denops.name}", "clearBreakpoint", [<f-args>])`,
@@ -100,6 +99,10 @@ export async function main(denops: Denops): Promise<void> {
   denops.dispatcher = {
     async dlvDebugStartWithEnv(...args: unknown[]): Promise<void> {
       const envfile = args[0] as string;
+      if (args.length === 1) {
+        const file = denops.call("bufname");
+        args.push(file);
+      }
       const text = await Deno.readTextFile(path.resolve(envfile));
       if (!env) {
         env = {};
@@ -116,6 +119,10 @@ export async function main(denops: Denops): Promise<void> {
     },
 
     async dlvDebugStart(...args: unknown[]): Promise<void> {
+      if (args.length === 0) {
+        const file = await denops.call("bufname");
+        args.push(file);
+      }
       // run dlv as headless server
       logFile = await Deno.makeTempFile({ prefix: "denops_delve" });
       const opts: Deno.RunOptions = {
