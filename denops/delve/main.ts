@@ -1,4 +1,4 @@
-import { Denops, mapping, Mode, rpc } from "./deps.ts";
+import { Denops, mapping, Mode, path, rpc } from "./deps.ts";
 import {
   Breakpoint,
   BreakpointResult,
@@ -13,7 +13,8 @@ import {
 export async function main(denops: Denops): Promise<void> {
   // define commands
   const commands: string[] = [
-    `command! -nargs=+ -complete=file DlvStart call denops#notify("${denops.name}", "dlvStart", [<f-args>])`,
+    `command! -nargs=+ -complete=file DlvDebugStart call denops#notify("${denops.name}", "dlvDebugStart", [<f-args>])`,
+    `command! -nargs=+ -complete=file DlvDebugStartWithEnv call denops#notify("${denops.name}", "dlvDebugStartWithEnv", [<f-args>])`,
     `command! DlvBreakpoint call denops#notify("${denops.name}", "createBreakpoint", [<f-args>])`,
     `command! DlvBreakpointClear call denops#notify("${denops.name}", "clearBreakpoint", [<f-args>])`,
     `command! DlvStop call denops#notify("${denops.name}", "stop", [])`,
@@ -80,11 +81,11 @@ export async function main(denops: Denops): Promise<void> {
 
   // define signs
   await denops.cmd(
-    `sign define delve_breakpoint text=● texthl=WarningMsg`,
+    `sign define delve_breakpoint text=● texthl=DelveLine`,
   );
 
   await denops.cmd(
-    `hi! delve_line ctermfg=234 ctermbg=216 guifg=#392313 guibg=#e4aa80 cterm=bold`,
+    `hi! DelveLine ctermfg=234 ctermbg=216 guifg=#392313 guibg=#e4aa80 cterm=bold`,
   );
 
   let cli: rpc.Client;
@@ -94,9 +95,27 @@ export async function main(denops: Denops): Promise<void> {
 
   let currentThread: CurrentThread;
   let logFile: string;
+  let env: Record<string, string> | undefined = {};
 
   denops.dispatcher = {
-    async dlvStart(...args: unknown[]): Promise<void> {
+    async dlvDebugStartWithEnv(...args: unknown[]): Promise<void> {
+      const envfile = args[0] as string;
+      const text = await Deno.readTextFile(path.resolve(envfile));
+      if (!env) {
+        env = {};
+      }
+      for (const line of text.split("\n")) {
+        if (line === "" || line[0] === "#") {
+          continue;
+        }
+        const [k, v] = line.split("=");
+        env[k] = v;
+      }
+      const cmds = args.slice(1);
+      await denops.dispatch(denops.name, "dlvDebugStart", cmds);
+    },
+
+    async dlvDebugStart(...args: unknown[]): Promise<void> {
       // run dlv as headless server
       logFile = await Deno.makeTempFile({ prefix: "denops_delve" });
       const opts: Deno.RunOptions = {
@@ -116,6 +135,7 @@ export async function main(denops: Denops): Promise<void> {
           ":8888",
           "--accept-multiclient",
         ],
+        env: env,
       };
       if (args.length > 1) {
         opts.cmd.push("--", ...(args.slice(1) as string[]));
@@ -144,25 +164,24 @@ export async function main(denops: Denops): Promise<void> {
     },
 
     async stop() {
-      dlvProcess.kill("SIGKILL");
-      dlvProcess.close();
-
       await clearAllBerakpoint();
       await removeHighlightLine();
-      cli.close();
-      console.log("dlv stopped");
 
-      // TODO: improve stop process and release resources
-      // await cli.Request({
-      //   method: "RPCServer.Detach",
-      //   params: [
-      //     {
-      //       args: {
-      //         kill: true,
-      //       },
-      //     },
-      //   ],
-      // });
+      await cli.Request({
+        method: "RPCServer.Detach",
+        params: [
+          {
+            args: {
+              kill: true,
+            },
+          },
+        ],
+      });
+
+      dlvProcess.close();
+      cli.close();
+      env = undefined;
+      console.log("dlv stopped");
     },
 
     async openLog() {
@@ -341,7 +360,7 @@ export async function main(denops: Denops): Promise<void> {
     if (!resp.result) {
       throw new Error(resp?.error?.message);
     }
-    const state = resp?.result?.State as State;
+    const state = resp.result?.State;
     if (state.exited) {
       await denops.dispatch(denops.name, "stop");
     }
@@ -357,12 +376,12 @@ export async function main(denops: Denops): Promise<void> {
   };
 
   const removeHighlightLine = async () => {
-    await denops.cmd(`syntax clear delve_line`);
+    await denops.cmd(`syntax clear DelveLine`);
   };
 
   const highlightLine = async (line: number) => {
     await removeHighlightLine();
-    await denops.cmd(`syntax match delve_line /\\%${line}l.*/`);
+    await denops.cmd(`syntax match DelveLine /\\%${line}l.*/`);
   };
 
   const createBreakpoint = async (
@@ -377,10 +396,10 @@ export async function main(denops: Denops): Promise<void> {
       ],
     };
     const resp = await cli.Request<BreakpointResult>(req);
-    if (resp.result) {
-      return resp.result.Breakpoint as Breakpoint; // improve
+    if (!resp.result) {
+      throw new Error(resp?.error?.message);
     }
-    throw new Error(resp?.error?.message);
+    return resp.result.Breakpoint;
   };
 
   const addBreakpointSign = async (line: number, id: number) => {
