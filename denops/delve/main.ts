@@ -81,7 +81,7 @@ export async function main(denops: Denops): Promise<void> {
 
   // define signs
   await denops.cmd(
-    `sign define delve_breakpoint text=● texthl=DelveLine`,
+    `sign define delve_breakpoint text=● texthl=ErrorMsg`,
   );
 
   await denops.cmd(
@@ -347,6 +347,8 @@ export async function main(denops: Denops): Promise<void> {
   };
 
   const toNext = async (name: string) => {
+    await removeHighlightLine();
+
     const req = {
       method: "RPCServer.Command",
       params: [
@@ -363,15 +365,24 @@ export async function main(denops: Denops): Promise<void> {
     const state = resp.result?.State;
     if (state.exited) {
       await denops.dispatch(denops.name, "stop");
+      return;
     }
+
     if (state.currentThread) {
       currentThread = state.currentThread;
-      denops.cmd(
-        `e +${state.currentThread.line} ${state.currentThread.file}`,
-      );
+      // if file was already opend the other window, jump to its window
+      const winid = await denops.call("bufwinid", state.currentThread.file);
+      if (winid !== -1) {
+        await denops.batch(
+          ["win_gotoid", winid],
+          ["cursor", state.currentThread.line, 1],
+        );
+      } else {
+        await denops.cmd(
+          `new +${state.currentThread.line} ${state.currentThread.file}`,
+        );
+      }
       await highlightLine(state.currentThread.line);
-    } else {
-      removeHighlightLine();
     }
   };
 
@@ -380,7 +391,6 @@ export async function main(denops: Denops): Promise<void> {
   };
 
   const highlightLine = async (line: number) => {
-    await removeHighlightLine();
     await denops.cmd(`syntax match DelveLine /\\%${line}l.*/`);
   };
 
