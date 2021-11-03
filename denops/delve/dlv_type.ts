@@ -1,9 +1,7 @@
 export type Breakpoint = {
   id: number;
-  addr: string;
   file: string;
   line: number;
-  functionName: string;
 };
 
 export type BreakpointResult = {
@@ -12,36 +10,36 @@ export type BreakpointResult = {
 
 export type VariableResult = {
   Variable: Variable;
-}
+};
 
 export enum Kind {
-	Invalid,
-	Bool,
-	Int,
-	Int8,
-	Int16,
-	Int32,
-	Int64,
-	Uint,
-	Uint8,
-	Uint16,
-	Uint32,
-	Uint64,
-	Uintptr,
-	Float32,
-	Float64,
-	Complex64,
-	Complex128,
-	Array,
-	Chan,
-	Func,
-	Interface,
-	Map,
-	Ptr,
-	Slice,
-	String,
-	Struct,
-	UnsafePointer,
+  Invalid,
+  Bool,
+  Int,
+  Int8,
+  Int16,
+  Int32,
+  Int64,
+  Uint,
+  Uint8,
+  Uint16,
+  Uint32,
+  Uint64,
+  Uintptr,
+  Float32,
+  Float64,
+  Complex64,
+  Complex128,
+  Array,
+  Chan,
+  Func,
+  Interface,
+  Map,
+  Ptr,
+  Slice,
+  String,
+  Struct,
+  UnsafePointer,
 }
 
 export type Variable = {
@@ -51,14 +49,14 @@ export type Variable = {
   realType: string;
   value: unknown;
   children: Variable[];
-}
+};
 
 export type CurrentThread = {
-    id: number;
-    file: string;
-    line: number;
-    goroutineID: number,
-}
+  id: number;
+  file: string;
+  line: number;
+  goroutineID: number;
+};
 
 export type State = {
   Pid: number;

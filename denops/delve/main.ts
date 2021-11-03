@@ -9,6 +9,8 @@ import {
   VariableResult,
 } from "./dlv_type.ts";
 
+import { createBreakpoints } from "./dlv_funcs.ts";
+
 export async function main(denops: Denops): Promise<void> {
   // define commands
   const commands: string[] = [
@@ -90,6 +92,7 @@ export async function main(denops: Denops): Promise<void> {
   let cli: rpc.Client;
   let dlvProcess: Deno.Process;
 
+  let currentBreakpointID = 0;
   const breakpoints = new Map<number, Breakpoint>();
 
   let currentThread: CurrentThread;
@@ -167,6 +170,20 @@ export async function main(denops: Denops): Promise<void> {
         }
         break;
       }
+
+      // create breakpoints
+      const bps: Breakpoint[] = [];
+      for (const [_, bp] of breakpoints.entries()) {
+        bps.push(bp);
+      }
+      try {
+        await createBreakpoints(cli, ...bps);
+      } catch (e) {
+        console.log(e.toString());
+        denops.dispatch(denops.name, "stop");
+        return;
+      }
+
       console.log("dlv started");
     },
 
@@ -178,9 +195,7 @@ export async function main(denops: Denops): Promise<void> {
         method: "RPCServer.Detach",
         params: [
           {
-            args: {
-              kill: true,
-            },
+            kill: true,
           },
         ],
       });
@@ -211,10 +226,21 @@ export async function main(denops: Denops): Promise<void> {
         file = results[0];
         line = Number(results[1]);
       }
+
+      currentBreakpointID++;
+      const breakpoint: Breakpoint = {
+        id: currentBreakpointID,
+        file: file,
+        line: line,
+      };
+
       try {
-        const breakpoint = await createBreakpoint(cli, file, Number(line));
         addBreakpointSign(Number(line), breakpoint.id);
         breakpoints.set(breakpoint.id, breakpoint);
+
+        if (cli !== undefined) {
+          createBreakpoints(cli, breakpoint);
+        }
       } catch (e) {
         console.error(e.toString());
       }
@@ -399,24 +425,6 @@ export async function main(denops: Denops): Promise<void> {
 
   const highlightLine = async (line: number) => {
     await denops.cmd(`syntax match DelveLine /\\%${line}l.*/`);
-  };
-
-  const createBreakpoint = async (
-    cli: rpc.Client,
-    file: string,
-    line: number,
-  ): Promise<Breakpoint> => {
-    const req = {
-      method: "RPCServer.CreateBreakpoint",
-      params: [
-        { breakPoint: { file: file, line: line } },
-      ],
-    };
-    const resp = await cli.Request<BreakpointResult>(req);
-    if (!resp.result) {
-      throw new Error(resp?.error?.message);
-    }
-    return resp.result.Breakpoint;
   };
 
   const addBreakpointSign = async (line: number, id: number) => {
