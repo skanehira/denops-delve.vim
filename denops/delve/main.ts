@@ -1,21 +1,14 @@
-import { Denops, mapping, Mode, path, rpc } from "./deps.ts";
-import {
-  Breakpoint,
-  BreakpointResult,
-  CurrentThread,
-  DebuggerStateResult,
-  Kind,
-  Variable,
-  VariableResult,
-} from "./dlv_type.ts";
+import { Denops, mapping, Mode, path } from "./deps.ts";
+import { Kind, Variable } from "./dlv_type.ts";
 
-import { createBreakpoints } from "./dlv_funcs.ts";
+import { DlvClient } from "./client.ts";
+import { DlvServer } from "./server.ts";
 
 export async function main(denops: Denops): Promise<void> {
   // define commands
   const commands: string[] = [
-    `command! -nargs=* -complete=file DlvDebugStart call denops#notify("${denops.name}", "dlvDebugStart", [<f-args>])`,
-    `command! -nargs=+ -complete=file DlvDebugStartWithEnv call denops#notify("${denops.name}", "dlvDebugStartWithEnv", [<f-args>])`,
+    `command! -nargs=* -complete=file DlvStart call denops#notify("${denops.name}", "dlvStart", [<f-args>])`,
+    `command! -nargs=+ -complete=file DlvStartWithEnv call denops#notify("${denops.name}", "dlvStartWithEnv", [<f-args>])`,
     `command! DlvBreakpoint call denops#notify("${denops.name}", "createBreakpoint", [<f-args>])`,
     `command! DlvBreakpointClear call denops#notify("${denops.name}", "clearBreakpoint", [<f-args>])`,
     `command! DlvStop call denops#notify("${denops.name}", "stop", [])`,
@@ -25,6 +18,7 @@ export async function main(denops: Denops): Promise<void> {
     `command! DlvStepOut call denops#notify("${denops.name}", "stepout", [])`,
     `command! -nargs=1 DlvPrint call denops#notify("${denops.name}", "print", [<f-args>])`,
     `command! DlvOpenLog call denops#notify("${denops.name}", "openLog", [])`,
+    `command! DlvBreakpoints call denops#notify("${denops.name}", "breakpoints", [])`,
   ];
   for (const cmd of commands) {
     await denops.cmd(cmd);
@@ -46,13 +40,11 @@ export async function main(denops: Denops): Promise<void> {
       noremap: true,
     },
   );
-
   mapping.map(denops, "<Plug>(dlv-continue)", ":DlvContinue<CR>", {
     silent: true,
     mode: "n" as Mode,
     noremap: true,
   });
-
   mapping.map(denops, "<Plug>(dlv-next)", ":DlvNext<CR>", {
     silent: true,
     mode: "n" as Mode,
@@ -85,31 +77,34 @@ export async function main(denops: Denops): Promise<void> {
     `sign define delve_breakpoint text=● texthl=ErrorMsg`,
   );
 
+  // define highlight
   await denops.cmd(
     `hi! DelveLine ctermfg=234 ctermbg=216 guifg=#392313 guibg=#e4aa80 cterm=bold`,
   );
 
-  let cli: rpc.Client;
-  let dlvProcess: Deno.Process;
+  const cli: DlvClient = new DlvClient({ port: 8888 });
+  const srv: DlvServer = new DlvServer();
+  const signs = new Map<string, number>();
 
-  let currentBreakpointID = 0;
-  const breakpoints = new Map<number, Breakpoint>();
+  let signID = 0;
 
-  let currentThread: CurrentThread;
-  let logFile: string;
-  let env: Record<string, string> | undefined = {};
+  const log = async (arg: string): Promise<void> => {
+    await Deno.writeTextFile(srv.logFile, arg);
+  };
 
   denops.dispatcher = {
-    async dlvDebugStartWithEnv(...args: unknown[]): Promise<void> {
+    async breakpoints(): Promise<void> {
+      console.log(cli.breakpoints);
+      await Promise.resolve();
+    },
+    async dlvStartWithEnv(...args: unknown[]): Promise<void> {
       const envfile = args[0] as string;
       if (args.length === 1) {
         const file = denops.call("bufname");
         args.push(file);
       }
+      const env: Record<string, string> = {};
       const text = await Deno.readTextFile(path.resolve(envfile));
-      if (!env) {
-        env = {};
-      }
       for (const line of text.split("\n")) {
         if (line === "" || line[0] === "#") {
           continue;
@@ -117,17 +112,19 @@ export async function main(denops: Denops): Promise<void> {
         const [k, v] = line.split("=");
         env[k] = v;
       }
+      srv.env = env;
       const cmds = args.slice(1);
-      await denops.dispatch(denops.name, "dlvDebugStart", cmds);
+      await denops.dispatch(denops.name, "dlvStart", cmds);
     },
 
-    async dlvDebugStart(...args: unknown[]): Promise<void> {
+    async dlvStart(...args: unknown[]): Promise<void> {
       if (args.length === 0) {
         const file = await denops.call("bufname");
         args.push(file);
       }
+
       // run dlv as headless server
-      logFile = await Deno.makeTempFile({ prefix: "denops_delve" });
+      const logFile = await Deno.makeTempFile({ prefix: "denops_delve" });
       const opts: Deno.RunOptions = {
         cmd: [
           "dlv",
@@ -145,42 +142,16 @@ export async function main(denops: Denops): Promise<void> {
           ":8888",
           "--accept-multiclient",
         ],
-        env: env,
       };
       if (args.length > 1) {
         opts.cmd.push("--", ...(args.slice(1) as string[]));
       }
-      dlvProcess = Deno.run(opts);
 
-      const maxRetry = 10;
-      let count = 0;
-      while (1) {
-        try {
-          if (count > maxRetry) {
-            console.error("failed to wait start dlv server");
-            return;
-          }
-          const conn = await Deno.connect({ port: 8888 });
-          cli = new rpc.Client(conn);
-          count++;
-        } catch {
-          // retry
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          continue;
-        }
-        break;
-      }
-
-      // create breakpoints
-      const bps: Breakpoint[] = [];
-      for (const [_, bp] of breakpoints.entries()) {
-        bps.push(bp);
-      }
       try {
-        await createBreakpoints(cli, ...bps);
+        srv.Start({ CmdOpts: opts, LogFile: logFile });
+        await cli.connect();
       } catch (e) {
-        console.log(e.toString());
-        denops.dispatch(denops.name, "stop");
+        console.error(e.toString());
         return;
       }
 
@@ -188,27 +159,16 @@ export async function main(denops: Denops): Promise<void> {
     },
 
     async stop() {
-      await clearAllBerakpoint();
-      await removeHighlightLine();
-
-      await cli.Request({
-        method: "RPCServer.Detach",
-        params: [
-          {
-            kill: true,
-          },
-        ],
-      });
-
-      dlvProcess.close();
-      cli.close();
-      env = undefined;
-      console.log("dlv stopped");
+      await cli.stop();
+      await clearHighlightLine();
+      console.log("stopped");
     },
 
     async openLog() {
-      if (logFile) {
-        await runTerminal(denops, ["tail", "-f", logFile]);
+      if (srv.logFile) {
+        const winid = await denops.call("win_getid");
+        await runTerminal(denops, ["tail", "-f", srv.logFile]);
+        await denops.call("win_gotoid", winid);
       }
     },
 
@@ -227,20 +187,20 @@ export async function main(denops: Denops): Promise<void> {
         line = Number(results[1]);
       }
 
-      currentBreakpointID++;
-      const breakpoint: Breakpoint = {
-        id: currentBreakpointID,
-        file: file,
-        line: line,
-      };
-
       try {
-        addBreakpointSign(Number(line), breakpoint.id);
-        breakpoints.set(breakpoint.id, breakpoint);
-
-        if (cli !== undefined) {
-          createBreakpoints(cli, breakpoint);
-        }
+        await cli.createBreakpoint(file, line);
+        await denops.call(
+          "sign_place",
+          ++signID,
+          "delve",
+          "delve_breakpoint",
+          "",
+          {
+            lnum: line,
+            priority: 99,
+          },
+        );
+        signs.set(`${file}:${line}`, signID);
       } catch (e) {
         console.error(e.toString());
       }
@@ -260,22 +220,18 @@ export async function main(denops: Denops): Promise<void> {
         file = results[0];
         line = Number(results[1]);
       }
-      const signInfo = await denops.call("sign_getplaced", file, {
-        lnum: line,
-        group: "delve",
-      }) as [{ signs: [{ id: number }] | [] }];
-      if (signInfo[0].signs.length === 0) {
-        console.error("not found sign");
-        return;
-      }
-      const id = signInfo[0].signs[0].id;
       try {
-        const breakpoint = breakpoints.get(id);
-        if (!breakpoint) {
-          console.error("not found breakpoint");
+        const key = `${file}:${line}`;
+        await cli.clearBreakpoint(file, line);
+        const signID = signs.get(key);
+        if (!signID) {
           return;
         }
-        await clearBreakpoint(cli, breakpoint);
+        await denops.call("sign_unplace", "delve", {
+          buffer: file,
+          id: signID,
+        });
+        signs.delete(key);
       } catch (e) {
         console.log(e.toString());
       }
@@ -314,23 +270,11 @@ export async function main(denops: Denops): Promise<void> {
     },
 
     async print(arg: unknown) {
-      const req = {
-        method: "RPCServer.Eval",
-        params: [
-          {
-            scope: {
-              goroutineID: currentThread.goroutineID,
-            },
-            expr: arg,
-          },
-        ],
-      };
-
-      const resp = await cli.Request<VariableResult>(req);
-      if (resp.result) {
-        console.log(formatVariable(resp.result.Variable));
-      } else {
-        console.error(resp?.error);
+      try {
+        const variable = await cli.eval(arg);
+        console.log(formatVariable(variable));
+      } catch (e) {
+        console.error(e.toString());
       }
     },
   };
@@ -380,90 +324,43 @@ export async function main(denops: Denops): Promise<void> {
   };
 
   const toNext = async (name: string) => {
-    await removeHighlightLine();
+    await clearHighlightLine();
 
-    const req = {
-      method: "RPCServer.Command",
-      params: [
-        {
-          name: name,
-        },
-      ],
-    };
-
-    const resp = await cli.Request<DebuggerStateResult>(req);
-    if (!resp.result) {
-      throw new Error(resp?.error?.message);
-    }
-    const state = resp.result?.State;
+    const state = await cli.toNext(name);
     if (state.exited) {
-      await denops.dispatch(denops.name, "stop");
       return;
     }
+    log(JSON.stringify(state, null, 2));
 
-    if (state.currentThread) {
-      currentThread = state.currentThread;
+    if (state.currentThread && state.currentThread.file) {
+      const [file, line] = [
+        state.currentThread.file,
+        state.currentThread.line,
+      ];
+      await denops.cmd(`e +${line} ${file}`);
+
       // if file was already opend the other window, jump to its window
-      const winid = await denops.call("bufwinid", state.currentThread.file);
-      if (winid !== -1) {
-        await denops.batch(
-          ["win_gotoid", winid],
-          ["cursor", state.currentThread.line, 1],
-        );
-      } else {
-        await denops.cmd(
-          `new +${state.currentThread.line} ${state.currentThread.file}`,
-        );
-      }
-      await highlightLine(state.currentThread.line);
+      // const winid = await denops.call("bufwinid", file);
+      // if (winid !== -1) {
+      //   await denops.batch(
+      //     ["win_gotoid", winid],
+      //     ["cursor", line, 1],
+      //   );
+      // } else {
+      //   await denops.cmd(
+      //     `new +${line} ${file}`,
+      //   );
+      // }
+      await highlightLine(line);
     }
   };
 
-  const removeHighlightLine = async () => {
+  const clearHighlightLine = async () => {
     await denops.cmd(`syntax clear DelveLine`);
   };
 
   const highlightLine = async (line: number) => {
     await denops.cmd(`syntax match DelveLine /\\%${line}l.*/`);
-  };
-
-  const addBreakpointSign = async (line: number, id: number) => {
-    await denops.call("sign_place", id, "delve", "delve_breakpoint", "", {
-      lnum: line,
-      priority: 99,
-    });
-  };
-
-  const clearAllBerakpoint = async () => {
-    for (const [_, breakpoint] of breakpoints.entries()) {
-      await clearBreakpointSign(breakpoint);
-    }
-  };
-
-  const clearBreakpoint = async (
-    cli: rpc.Client,
-    breakpoint: Breakpoint,
-  ): Promise<Breakpoint> => {
-    const req = {
-      method: "RPCServer.ClearBreakpoint",
-      params: [
-        { id: breakpoint.id },
-      ],
-    };
-    const resp = await cli.Request<BreakpointResult>(req);
-    if (resp.result) {
-      await clearBreakpointSign(breakpoint);
-      return resp?.result?.Breakpoint as Breakpoint; // improve
-    }
-    throw new Error(resp?.error?.message);
-  };
-
-  const clearBreakpointSign = async (breakpoint: Breakpoint) => {
-    breakpoints.delete(breakpoint.id);
-    await denops.call("sign_unplace", "delve", {
-      buffer: breakpoint.file,
-      id: breakpoint.id,
-    });
   };
 
   const runTerminal = async (denops: Denops, cmd: string[]) => {
