@@ -31,6 +31,13 @@ export async function main(denops: Denops): Promise<void> {
     mode: "n" as Mode,
     noremap: true,
   });
+
+  mapping.map(denops, "<Plug>(dlv-breakpoints)", ":DlvBreakpoints<CR>", {
+    silent: true,
+    mode: "n" as Mode,
+    noremap: true,
+  });
+
   mapping.map(
     denops,
     "<Plug>(dlv-breakpoint-clear)",
@@ -41,26 +48,31 @@ export async function main(denops: Denops): Promise<void> {
       noremap: true,
     },
   );
+
   mapping.map(denops, "<Plug>(dlv-continue)", ":DlvContinue<CR>", {
     silent: true,
     mode: "n" as Mode,
     noremap: true,
   });
+
   mapping.map(denops, "<Plug>(dlv-next)", ":DlvNext<CR>", {
     silent: true,
     mode: "n" as Mode,
     noremap: true,
   });
+
   mapping.map(denops, "<Plug>(dlv-step)", ":DlvStep<CR>", {
     silent: true,
     mode: "n" as Mode,
     noremap: true,
   });
+
   mapping.map(denops, "<Plug>(dlv-stepout)", ":DlvStepOut<CR>", {
     silent: true,
     mode: "n" as Mode,
     noremap: true,
   });
+
   mapping.map(denops, "<Plug>(dlv-print)", ":DlvPrint <C-r><C-w><CR>", {
     silent: true,
     mode: "n" as Mode,
