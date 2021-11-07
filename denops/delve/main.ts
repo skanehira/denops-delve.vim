@@ -380,7 +380,6 @@ export async function main(denops: Denops): Promise<void> {
         state.currentThread.file,
         state.currentThread.line,
       ];
-      await denops.cmd(`e +${line} ${file}`);
 
       // if file was already opend the other window, jump to its window
       const winid = await denops.call("bufwinid", file);
@@ -389,6 +388,8 @@ export async function main(denops: Denops): Promise<void> {
           ["win_gotoid", winid],
           ["cursor", line, 1],
         );
+      } else {
+        await denops.cmd(`e +${line} ${file}`);
       }
       await highlightLine(line);
     }
