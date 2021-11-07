@@ -1,8 +1,15 @@
-export type Breakpoint = {
-  id: number;
+interface BaseBreakpoint {
+  bufnr?: number;
   file: string;
   line: number;
-};
+  text?: string;
+}
+
+export type UnaddedBreakpoint = BaseBreakpoint;
+
+export interface Breakpoint extends BaseBreakpoint {
+  id: number;
+}
 
 export type BreakpointResult = {
   Breakpoint: Breakpoint;

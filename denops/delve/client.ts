@@ -3,6 +3,7 @@ import {
   BreakpointResult,
   DebuggerStateResult,
   State,
+  UnaddedBreakpoint,
   Variable,
   VariableResult,
 } from "./dlv_type.ts";
@@ -15,7 +16,7 @@ export class DlvClient {
   #rpcClient!: rpc.Client;
   state!: State | undefined;
   breakpoints: Map<string, Breakpoint>;
-  unaddedBreakpoints: Map<string, { file: string; line: number }>;
+  unaddedBreakpoints: Map<string, UnaddedBreakpoint>;
 
   constructor(opt: { hostname?: string; port: number }) {
     this.#option = opt;
@@ -103,19 +104,28 @@ export class DlvClient {
     }
   }
 
-  async createBreakpoint(file: string, line: number): Promise<void> {
+  async createBreakpoint(
+    file: string,
+    line: number,
+    text: string,
+    bufnr: number,
+  ): Promise<void> {
     const key = `${file}:${line}`;
     // just add breakpoint before connect delve server
     if (!this.state || this.state.exited) {
       const bp = {
         file: file,
         line: line,
+        text: text,
+        bufnr: bufnr,
       };
       this.unaddedBreakpoints.set(key, bp);
       return;
     }
 
     const bp = await this.applyBreakpoint(file, line);
+    bp.text = text;
+    bp.bufnr = bufnr;
     this.breakpoints.set(key, bp);
   }
 
@@ -145,7 +155,7 @@ export class DlvClient {
       };
       await this.request(req);
     }
-    this.breakpoints.delete(key);
+    this.unaddedBreakpoints.delete(key);
   }
 
   async clearAllBreakpoints(): Promise<void> {

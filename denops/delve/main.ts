@@ -169,28 +169,58 @@ export async function main(denops: Denops): Promise<void> {
     },
 
     async breakpoints(): Promise<void> {
-      // TODO user quickfix
-      console.log(cli.breakpoints);
-      await Promise.resolve();
+      const bps = [];
+      for (const bp of cli.unaddedBreakpoints.values()) {
+        bps.push({
+          bufnr: bp.bufnr,
+          filename: bp.file,
+          lnum: bp.line,
+          text: bp.text,
+        });
+      }
+
+      for (const bp of cli.breakpoints.values()) {
+        bps.push({
+          bufnr: bp.bufnr,
+          filename: bp.file,
+          lnum: bp.line,
+          text: bp.text,
+        });
+      }
+
+      await denops.call("setqflist", bps, "r");
+      await denops.cmd("copen");
     },
 
     async createBreakpoint(...args: unknown[]) {
       let file: string;
       let line: number;
+      let text: string;
+      let bufnr: number;
       if (args.length == 2) {
         file = args[0] as string;
         line = Number(args[1]);
+        const results = await denops.batch(
+          ["getline", "."],
+          ["bufnr", ""],
+        ) as string[];
+        text = results[0];
+        bufnr = Number(results[1]);
       } else {
         const results = await denops.batch(
           ["expand", "%:p"],
           ["line", "."],
+          ["getline", "."],
+          ["bufnr", ""],
         ) as string[];
         file = results[0];
         line = Number(results[1]);
+        text = results[2];
+        bufnr = Number(results[3]);
       }
 
       try {
-        await cli.createBreakpoint(file, line);
+        await cli.createBreakpoint(file, line, text, bufnr);
         await denops.call(
           "sign_place",
           ++signID,
