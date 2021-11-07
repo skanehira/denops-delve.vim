@@ -202,6 +202,23 @@ export class DlvClient {
     return resp?.result?.State as State;
   }
 
+  async setVariable(symbol: string, value: string): Promise<void> {
+    if (!this.state?.currentThread?.goroutineID) return;
+    const req = {
+      method: "RPCServer.Set",
+      params: [
+        {
+          Scope: {
+            GoroutineID: this.state?.currentThread?.goroutineID,
+          },
+          Symbol: symbol,
+          Value: value,
+        },
+      ],
+    };
+    await this.request(req);
+  }
+
   async request<T>(req: rpc.Request): Promise<T> {
     // TODO: check state that if can request
     // current implementation need to halt process before send some request

@@ -19,6 +19,7 @@ export async function main(denops: Denops): Promise<void> {
     `command! -nargs=1 DlvPrint call denops#notify("${denops.name}", "print", [<f-args>])`,
     `command! DlvOpenLog call denops#notify("${denops.name}", "openLog", [])`,
     `command! DlvBreakpoints call denops#notify("${denops.name}", "breakpoints", [])`,
+    `command! -nargs=+ DlvSet call denops#notify("${denops.name}", "setVariable", [<f-args>])`,
   ];
   for (const cmd of commands) {
     await denops.cmd(cmd);
@@ -162,7 +163,13 @@ export async function main(denops: Denops): Promise<void> {
       }
     },
 
+    async setVariable(args: unknown): Promise<void> {
+      const [symbol, value] = (args as string).split("=");
+      await cli.setVariable(symbol, value);
+    },
+
     async breakpoints(): Promise<void> {
+      // TODO user quickfix
       console.log(cli.breakpoints);
       await Promise.resolve();
     },
@@ -296,7 +303,7 @@ export async function main(denops: Denops): Promise<void> {
       case Kind.Complex128:
         return `${variable.value}`;
       case Kind.Map:
-        return `["${formatVariable(variable.children[0])}": ${
+        return `[${formatVariable(variable.children[0])}: ${
           formatVariable(variable.children[1])
         }]`;
       case Kind.Array:
