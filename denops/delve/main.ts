@@ -88,15 +88,7 @@ export async function main(denops: Denops): Promise<void> {
 
   let signID = 0;
 
-  const log = async (arg: string): Promise<void> => {
-    await Deno.writeTextFile(srv.logFile, arg);
-  };
-
   denops.dispatcher = {
-    async breakpoints(): Promise<void> {
-      console.log(cli.breakpoints);
-      await Promise.resolve();
-    },
     async dlvStartWithEnv(...args: unknown[]): Promise<void> {
       const envfile = args[0] as string;
       if (args.length === 1) {
@@ -136,8 +128,6 @@ export async function main(denops: Denops): Promise<void> {
           "--log",
           "--log-output",
           "rpc",
-          "--log-dest",
-          logFile,
           "-l",
           ":8888",
           "--accept-multiclient",
@@ -170,6 +160,11 @@ export async function main(denops: Denops): Promise<void> {
         await runTerminal(denops, ["tail", "-f", srv.logFile]);
         await denops.call("win_gotoid", winid);
       }
+    },
+
+    async breakpoints(): Promise<void> {
+      console.log(cli.breakpoints);
+      await Promise.resolve();
     },
 
     async createBreakpoint(...args: unknown[]) {
@@ -330,7 +325,6 @@ export async function main(denops: Denops): Promise<void> {
     if (state.exited) {
       return;
     }
-    log(JSON.stringify(state, null, 2));
 
     if (state.currentThread && state.currentThread.file) {
       const [file, line] = [
@@ -340,17 +334,13 @@ export async function main(denops: Denops): Promise<void> {
       await denops.cmd(`e +${line} ${file}`);
 
       // if file was already opend the other window, jump to its window
-      // const winid = await denops.call("bufwinid", file);
-      // if (winid !== -1) {
-      //   await denops.batch(
-      //     ["win_gotoid", winid],
-      //     ["cursor", line, 1],
-      //   );
-      // } else {
-      //   await denops.cmd(
-      //     `new +${line} ${file}`,
-      //   );
-      // }
+      const winid = await denops.call("bufwinid", file);
+      if (winid !== -1) {
+        await denops.batch(
+          ["win_gotoid", winid],
+          ["cursor", line, 1],
+        );
+      }
       await highlightLine(line);
     }
   };
