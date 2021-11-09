@@ -1,4 +1,4 @@
-import { Denops, mapping, Mode, path } from "./deps.ts";
+import { Denops, io, mapping, Mode, path } from "./deps.ts";
 import { Kind, Variable } from "./dlv_type.ts";
 
 import { DlvClient } from "./client.ts";
@@ -95,7 +95,7 @@ export async function main(denops: Denops): Promise<void> {
     `hi! DelveLine ctermfg=234 ctermbg=216 guifg=#392313 guibg=#e4aa80 cterm=bold`,
   );
 
-  const cli: DlvClient = new DlvClient({ port: 8888 });
+  const cli: DlvClient = new DlvClient();
   const srv: DlvServer = new DlvServer();
   const signs = new Map<string, number>();
 
@@ -141,8 +141,6 @@ export async function main(denops: Denops): Promise<void> {
           "--log",
           "--log-output",
           "rpc",
-          "-l",
-          ":8888",
           "--accept-multiclient",
         ],
       };
@@ -152,7 +150,31 @@ export async function main(denops: Denops): Promise<void> {
 
       try {
         srv.Start({ CmdOpts: opts, LogFile: logFile });
-        await cli.connect();
+        let host = "";
+        let port = "";
+
+        const max = 5;
+        for (let i = 0; i < max; i++) {
+          if (i == 4) {
+            throw new Error("failed to connect delve server");
+          }
+          const f = await Deno.open(srv.logFile);
+
+          for await (const line of io.readLines(f)) {
+            if (line.startsWith("API server listening at")) {
+              [host, port] = line.substring(25).split(":");
+            }
+            break;
+          }
+          f.close();
+
+          if (host && port) {
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+
+        await cli.connect({ hostname: host, port: Number(port) });
       } catch (e) {
         console.error(e.toString());
         return;

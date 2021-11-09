@@ -7,3 +7,4 @@ export * as mapping from "https://deno.land/x/denops_std@v2.1.3/mapping/mod.ts";
 export * from "https://deno.land/x/denops_std@v2.1.3/mapping/types.ts";
 export * as path from "https://deno.land/std@0.113.0/path/mod.ts";
 export * as streams from "https://deno.land/std@0.113.0/streams/conversion.ts";
+export * as io from "https://deno.land/std@0.113.0/io/mod.ts";

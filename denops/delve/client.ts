@@ -10,16 +10,12 @@ import {
 import { rpc } from "./deps.ts";
 
 export class DlvClient {
-  #option: {
-    port: number;
-  };
   #rpcClient!: rpc.Client;
   state!: State | undefined;
   breakpoints: Map<string, Breakpoint>;
   unaddedBreakpoints: Map<string, UnaddedBreakpoint>;
 
-  constructor(opt: { hostname?: string; port: number }) {
-    this.#option = opt;
+  constructor() {
     this.breakpoints = new Map<string, Breakpoint>();
     this.unaddedBreakpoints = new Map<string, Breakpoint>();
   }
@@ -28,37 +24,28 @@ export class DlvClient {
     await new Promise((resolve) => setTimeout(resolve, msec));
   }
 
-  async connect() {
-    const max = 5;
-    for (let i = 0; i < max; i++) {
-      try {
-        await this.wait(700);
-        const conn = await Deno.connect({
-          port: this.#option.port,
-        });
-        const cli = new rpc.Client(conn);
-        this.#rpcClient = cli;
+  async connect(opt: { hostname?: string; port: number }) {
+    const conn = await Deno.connect({
+      hostname: opt.hostname,
+      port: opt.port,
+    });
+    const cli = new rpc.Client(conn);
+    this.#rpcClient = cli;
 
-        const state = await this.getState(false);
-        if (state.Running) {
-          const state = await this.halt();
-          this.state = state;
-        } else {
-          this.state = state;
-        }
-
-        for (const { file, line } of this.unaddedBreakpoints.values()) {
-          const bp = await this.applyBreakpoint(file, line);
-          const key = `${file}:${line}`;
-          this.unaddedBreakpoints.delete(key);
-          this.breakpoints.set(key, bp);
-        }
-        return;
-      } catch {
-        // retry
-      }
+    const state = await this.getState(false);
+    if (state.Running) {
+      const state = await this.halt();
+      this.state = state;
+    } else {
+      this.state = state;
     }
-    throw new Error("failed to wait start delve server");
+
+    for (const { file, line } of this.unaddedBreakpoints.values()) {
+      const bp = await this.applyBreakpoint(file, line);
+      const key = `${file}:${line}`;
+      this.unaddedBreakpoints.delete(key);
+      this.breakpoints.set(key, bp);
+    }
   }
 
   async getState(nonBlocking: boolean): Promise<State> {
@@ -99,7 +86,7 @@ export class DlvClient {
     this.state = undefined;
     for (const bp of this.breakpoints.values()) {
       const key = `${bp.file}:${bp.line}`;
-      this.unaddedBreakpoints.set(key, { file: bp.file, line: bp.line });
+      this.unaddedBreakpoints.set(key, bp);
       this.breakpoints.delete(key);
     }
   }
@@ -154,6 +141,7 @@ export class DlvClient {
         ],
       };
       await this.request(req);
+      this.breakpoints.delete(key);
     }
     this.unaddedBreakpoints.delete(key);
   }
