@@ -346,6 +346,8 @@ export async function main(denops: Denops): Promise<void> {
   };
 
   const formatVariable = (variable: Variable): string => {
+    if (!variable) return "undefined";
+
     switch (variable.kind) {
       case Kind.Func:
       case Kind.Int:
@@ -367,11 +369,17 @@ export async function main(denops: Denops): Promise<void> {
       case Kind.Complex128:
         return `${variable.value}`;
       case Kind.Map:
+        if (!variable.children.length) {
+          return "[]";
+        }
         return `[${formatVariable(variable.children[0])}: ${
           formatVariable(variable.children[1])
         }]`;
       case Kind.Array:
       case Kind.Slice:
+        if (!variable.children.length) {
+          return "[]";
+        }
         return `[${
           variable.children.map((v) => formatVariable(v)).join(", ")
         }]`;
@@ -380,11 +388,16 @@ export async function main(denops: Denops): Promise<void> {
       case Kind.Interface:
         return `${formatVariable(variable.children[0])}`;
       case Kind.Struct:
-        return `{ ${variable.realType} } { ${
-          variable.children.map((v) => v.name + ": " + formatVariable(v)).join(
-            ", ",
-          )
-        } }`;
+        return `{${
+          variable.children.map(
+            (v) => v.name + ":" + formatVariable(v),
+          ).join(", ")
+        }}`;
+      case Kind.Ptr:
+        if (variable.children.length > 0) {
+          return `${formatVariable(variable.children[0])}`;
+        }
+        return variable.realType;
     }
     return `${variable.realType}`;
   };
