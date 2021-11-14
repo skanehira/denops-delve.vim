@@ -40,10 +40,11 @@ export class DlvClient {
       this.state = state;
     }
 
-    for (const { file, line } of this.unaddedBreakpoints.values()) {
+    for (const { file, line, text } of this.unaddedBreakpoints.values()) {
       const bp = await this.applyBreakpoint(file, line);
-      const key = `${file}:${line}`;
+      const key = `${bp.file}:${bp.line}`;
       this.unaddedBreakpoints.delete(key);
+      bp.text = text;
       this.breakpoints.set(key, bp);
     }
   }

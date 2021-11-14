@@ -222,6 +222,10 @@ export async function main(denops: Denops): Promise<void> {
         });
       }
 
+      if (!bps.length) {
+        return;
+      }
+
       await denops.call("setqflist", bps, "r");
       await denops.cmd("copen");
     },
